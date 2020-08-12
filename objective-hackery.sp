@@ -187,12 +187,19 @@ methodmap ObjectiveManager < AddressBase {
 				return i; 
 		return -1;
 	}
-}
 
+	public Objective GetObjectiveByID(int id)
+	{
+		return ObjectiveManager_GetObjectiveById(this.addr, id);
+	}
+
+}
 
 ObjectiveManager objMgr;
 
-Handle hBoundaryFinish, hStartNextObjective;
+Handle hBoundaryFinish;
+Handle hStartNextObjective;
+Handle hGetObjectiveByID;
 
 public void OnPluginStart()
 {
@@ -203,6 +210,13 @@ public void OnPluginStart()
 	objMgr = ObjectiveManager(gamedata.GetAddress("CNMRiH_ObjectiveManager"));
 	if(!objMgr.addr)
 		SetFailState("Failed to retrieve the objective manager");
+
+	StartPrepSDKCall(SDKCall_Raw);
+	PrepSDKCall_SetSignature(SDKLibrary_Server, "\x55\x8B\xEC\x56\x8B\x71\x20", 7);
+	PrepSDKCall_AddParameter(SDKType_PlainOldData, SDKPass_Plain);
+	PrepSDKCall_SetReturnInfo(SDKType_PlainOldData, SDKPass_Plain);
+	hGetObjectiveByID = EndPrepSDKCall();
+	ASSERT(hGetObjectiveByID);
 
 	StartPrepSDKCall(SDKCall_Raw);
 	PrepSDKCall_SetSignature(SDKLibrary_Server, 
@@ -216,6 +230,7 @@ public void OnPluginStart()
 	hStartNextObjective = EndPrepSDKCall();
 	ASSERT(hStartNextObjective);
 
+	HookEvent("objective_complete", OnObjectiveComplete, EventHookMode_Pre);
 	RegConsoleCmd("sm_test", OnCmdTest);
 }
 
@@ -280,10 +295,43 @@ public void ObjectiveBoundary_Finish(Address addr)
 	SDKCall(hBoundaryFinish, addr);
 }
 
+Objective ObjectiveManager_GetObjectiveById(Address self, int id)
+{
+	return Objective((SDKCall(hGetObjectiveByID, self, id)));	
+}
+
 void UTIL_StringtToCharArray(Address pSrc, char[] dest, int len)
 {
 	int i;
 	while (--len && (dest[i] = LoadFromAddress(pSrc + Address:i, NumberType_Int8)) != 0)
 		i++; 
 	dest[i] = 0;
+}
+
+bool ignoreObjectives;
+public Action OnObjectiveComplete(Event event, const char[] name, bool silent)
+{
+	if (ignoreObjectives)
+		return Plugin_Continue;
+
+	Objective pCurObj = objMgr.currentObjective;
+	ASSERT(pCurObj);
+
+	int doneObjID = event.GetInt("id");
+	Objective pDoneObj = objMgr.GetObjectiveByID(doneObjID);
+	ASSERT(pDoneObj);
+
+	int skipped = objMgr.GetObjectiveIndex(pDoneObj) - objMgr.GetObjectiveIndex(pCurObj);
+	
+	if (skipped > 0) {
+		/* Complete intermediate objectives to break the map less */
+		ignoreObjectives = true;
+		do {
+			objMgr.CompleteCurrentObjective();
+			skipped--;
+		} while (skipped)
+		ignoreObjectives = false;
+	}
+
+	return Plugin_Continue;
 }
