@@ -100,6 +100,7 @@ methodmap Objective < AddressBase {
 		UTIL_StringtToCharArray(Address:this.description, buffer, maxlen);
 	}
 
+	// FIXME: Returns true for non end objectives 
 	public bool IsEndObjective()
 	{
 		return !this.links.size;
@@ -159,25 +160,28 @@ methodmap ObjectiveManager < AddressBase {
 	public void CompleteCurrentObjective() {
 		ObjectiveBoundary boundary = this.currentObjectiveBoundary;
 
-		if (boundary.addr)
+		if (boundary)
 			boundary.Finish();
 
-		Objective objective = this.currentObjective;
-		ASSERT(objective);
+		// FIXME: IsEndObjective returns true for non end objectives
 
-		if (objective.IsEndObjective())
-		{
-			this.completed = true;
-		}
-		else
-		{
-			this.currentObjectiveIndex++;
-			this.StartNextObjective();
-		}
+		// Objective objective = this.currentObjective;
+		// ASSERT(objective);
+
+		// if (objective.IsEndObjective())
+		// {
+		// 	PrintToServer("Is end objective");
+		// 	this.completed = true;
+		// }
+		// else
+		// {
+			// PrintToServer("Is not end objective");
+		this.currentObjectiveIndex++;
+		this.StartNextObjective();
+		// }
 	}
 
-	public int GetObjectiveIndex(Objective objective)
-	{
+	public int GetObjectiveIndex(Objective objective) {
 		UtlVector objectives = this.objectives;
 		ASSERT(objectives);
 		
@@ -188,8 +192,7 @@ methodmap ObjectiveManager < AddressBase {
 		return -1;
 	}
 
-	public Objective GetObjectiveByID(int id)
-	{
+	public Objective GetObjectiveByID(int id) {
 		return ObjectiveManager_GetObjectiveById(this.addr, id);
 	}
 
@@ -232,6 +235,7 @@ public void OnPluginStart()
 
 	HookEvent("objective_complete", OnObjectiveComplete, EventHookMode_Pre);
 	RegConsoleCmd("sm_test", OnCmdTest);
+	RegConsoleCmd("sm_next", OnCmdNext);
 }
 
 public Action OnCmdTest(int client, int args)
@@ -321,7 +325,11 @@ public Action OnObjectiveComplete(Event event, const char[] name, bool silent)
 	Objective pDoneObj = objMgr.GetObjectiveByID(doneObjID);
 	ASSERT(pDoneObj);
 
-	int skipped = objMgr.GetObjectiveIndex(pDoneObj) - objMgr.GetObjectiveIndex(pCurObj);
+	int doneObjIdx = objMgr.GetObjectiveIndex(pDoneObj);
+	int curObjIdx = objMgr.GetObjectiveIndex(pCurObj);
+
+	PrintToServer("done idx = %d, cur idx = %d", doneObjIdx, curObjIdx);
+	int skipped = doneObjIdx - curObjIdx;
 	
 	if (skipped > 0) {
 		/* Complete intermediate objectives to break the map less */
@@ -334,4 +342,10 @@ public Action OnObjectiveComplete(Event event, const char[] name, bool silent)
 	}
 
 	return Plugin_Continue;
+}
+
+public Action OnCmdNext(int client, int args)
+{
+	objMgr.CompleteCurrentObjective();
+	return Plugin_Handled;
 }
