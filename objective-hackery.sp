@@ -1,6 +1,6 @@
 #include <sdktools>
 
-#define ASSERT(%1) if (!%1) ThrowError("\""...#%1..."\" is false")
+#define ASSERT(%1) if (!%1) ThrowError("#%1")
 
 stock Address operator+(Address base, int off) {
 	return base + Address:off;
@@ -35,8 +35,16 @@ methodmap UtlVector < AddressBase
 	public any Get(int idx, int elemSize = 0x4) {
 		return any:LoadFromAddress(this.elements + idx * elemSize, NumberType_Int32);
 	}
-}
 
+	public int FindValue(int value)
+	{
+		int max = this.size;
+		for (int i; i < max; i++)
+			if (this.Get(i) == value)
+				return value;
+		return -1;
+	}
+}
 
 methodmap ObjectiveBoundary < AddressBase {
 
@@ -55,22 +63,9 @@ methodmap Objective < AddressBase {
 		return Objective:addr;
 	}
 
-	property UtlVector links {
-		public get() {
-			Address addr = Address:LoadFromAddress(this.addr + 0x20, NumberType_Int32);
-			return UtlVector(addr);
-		}
-	}
-
 	property int id {
 		public get() { 
 			return LoadFromAddress(this.addr, NumberType_Int32);
-		}
-	}
-
-	property UtlVector entityList {
-		public get() {
-			return UtlVector(this.addr + 0xC);
 		}
 	}
 
@@ -86,24 +81,54 @@ methodmap Objective < AddressBase {
 		}
 	}
 
+	property Address entityList {
+		public get() {
+			return this.addr + 0xC;
+		}
+	}
+
+	property Address links {
+		public get() {
+			return this.addr + 0x20;
+		}
+	}
+
+	property bool anti {
+		public get() {
+			return !!LoadFromAddress(this.addr + 0x34, NumberType_Int8);
+		}
+	}
+
+	property int boundaryName {
+		public get() {
+			return LoadFromAddress(this.addr + 0x38, NumberType_Int32);
+		}
+	}
+
+	public UtlVector GetLinks() {
+		return UtlVector(this.links);
+	}
+
+	public UtlVector GetEntityList() {
+		return UtlVector(this.entityList);
+	}
+
 	// TODO: return bytes written
-	public void GetName(char[] buffer, int maxlen) {
-		
+	public void GetName(char[] buffer, int maxlen) {	
 		ASSERT(this.name);
 		UTIL_StringtToCharArray(Address:this.name, buffer, maxlen);
 	}
 
 	// ^
-	public void GetDescription(char[] buffer, int maxlen)
-	{
+	public void GetDescription(char[] buffer, int maxlen) {
 		ASSERT(this.name);
 		UTIL_StringtToCharArray(Address:this.description, buffer, maxlen);
 	}
 
 	// FIXME: Returns true for non end objectives 
-	public bool IsEndObjective()
-	{
-		return !this.links.size;
+	// TODO: Fetch obj chain vector and findvalue to see if index equals len-1
+	public bool IsEndObjective() {
+		return false;
 	}
 }
 
@@ -134,6 +159,12 @@ methodmap ObjectiveManager < AddressBase {
 		public get() {
 			Address addr = Address:LoadFromAddress(this.addr + 0x78, NumberType_Int32);
 			return Objective(addr);
+		}
+	}
+
+	property UtlVector objectiveChain {
+		public get() {
+			return UtlVector(this.addr + 0x58);
 		}
 	}
 
@@ -182,12 +213,12 @@ methodmap ObjectiveManager < AddressBase {
 	}
 
 	public int GetObjectiveIndex(Objective objective) {
-		UtlVector objectives = this.objectives;
-		ASSERT(objectives);
+		UtlVector chain = this.objectiveChain;
+		ASSERT(chain);
 		
-		int len = objectives.size;
+		int len = chain.size;
 		for (int i; i < len; i++)
-			if (objectives.Get(i) == objective)
+			if (chain.Get(i) == objective.id)
 				return i; 
 		return -1;
 	}
@@ -203,6 +234,18 @@ ObjectiveManager objMgr;
 Handle hBoundaryFinish;
 Handle hStartNextObjective;
 Handle hGetObjectiveByID;
+bool g_bIgnoreObjectives;
+UtlVector g_ObjectiveChain;
+
+public void OnMapReset()
+{
+	g_ObjectiveChain = objMgr.objectiveChain;
+}
+
+public void OnMapStart()
+{
+	g_ObjectiveChain = objMgr.objectiveChain;
+}
 
 public void OnPluginStart()
 {
@@ -234,59 +277,78 @@ public void OnPluginStart()
 	ASSERT(hStartNextObjective);
 
 	HookEvent("objective_complete", OnObjectiveComplete, EventHookMode_Pre);
+	HookUserMessage(GetUserMessageId("ObjectiveNotify"), OnObjectiveNotify, true);
 	RegConsoleCmd("sm_test", OnCmdTest);
-	RegConsoleCmd("sm_next", OnCmdNext);
+	RegConsoleCmd("sm_chain", OnCmdChain);
+}
+
+
+public Action OnCmdChain(int client, int args)
+{
+	int max = g_ObjectiveChain.size;
+	for (int i; i < max; i++)
+		PrintToServer("%d", g_ObjectiveChain.Get(i));
+
+	return Plugin_Handled;
 }
 
 public Action OnCmdTest(int client, int args)
 {
-	PrintToServer("ObjectiveManager.currentObjectiveIndex -> %d", objMgr.currentObjectiveIndex);
+	UtlVector objectives = objMgr.objectives;
 
-	Objective curObj = objMgr.currentObjective;
-	PrintToServer("ObjectiveManager.currentObjective -> %x", curObj);
-	PrintToServer("Objective.links -> %x", curObj.links);
-	PrintToServer("Objective.id -> %d", curObj.id);
-	PrintToServer("Objective.IsEndObjective() -> %d", curObj.IsEndObjective());
+	char sObjName[255];
+	char sObjDesc[255];
 
-	ObjectiveBoundary boundary = objMgr.currentObjectiveBoundary;
-	PrintToServer("objMgr.currentObjectiveBoundary -> %x", boundary);
+	int maxObjs = objectives.size;
+	for(int i; i < maxObjs; i++)
+	{
+		char sObjLinks[255];
+		char sObjEnts[1024];
 
-	GetObjectiveEntities();
-	objMgr.CompleteCurrentObjective();
+		Objective obj = objectives.Get(i);
+
+		int objID = obj.id;
+
+		obj.GetName(sObjName, sizeof(sObjName));
+		obj.GetDescription(sObjDesc, sizeof(sObjDesc));
+
+		int index = g_ObjectiveChain.FindValue(objID);
+
+		UtlVector links = obj.GetLinks();
+		int maxLinks = links.size;
+		for(int j; j < maxLinks; j++)
+		{
+			Objective linkedObj = objMgr.GetObjectiveByID(links.Get(j));
+			if (!linkedObj)
+				continue;
+
+			char sLinkedObjName[64];
+			linkedObj.GetName(sLinkedObjName, sizeof(sLinkedObjName));
+			Format(sObjLinks, sizeof(sObjLinks), "%s%s ", sObjLinks, sLinkedObjName);
+		}
+		
+		UtlVector entities = obj.GetEntityList();
+		int maxEnts = entities.size;
+		for(int j; j < maxEnts; j++)
+		{
+			char buffer[32];
+			UTIL_StringtToCharArray(entities.Get(j), buffer, sizeof(buffer));
+
+			Format(sObjEnts, sizeof(sObjEnts), "%s%s ", sObjEnts, buffer);
+		}
+
+		PrintToServer("[%d] %d: %s - %s [end: %d] \n Links-> %s \n Ents-> %s", 
+			index, objID, sObjName, sObjDesc, obj.IsEndObjective(), sObjLinks, sObjEnts);
+	}
 
 	return Plugin_Handled;
 }
 
 
-void GetObjectiveEntities()
+public Action OnObjectiveNotify(UserMsg msg, BfRead bf, const int[] players, int playersNum, 
+	bool reliable, bool init)
 {
-	UtlVector objectives = objMgr.objectives;
-	if (!objectives.addr)
-		return;
-
-	char entName[64], objName[64];
-
-	int maxObjs = objectives.size;
-	for (int i; i < maxObjs; i++)
-	{
-		Objective objective = objectives.Get(i);
-		ASSERT(objective);
-
-		UtlVector entityList = objective.entityList;
-		ASSERT(entityList);
-		
-		objective.GetName(objName, sizeof(objName));
-
-		int maxEnts = entityList.size;
-		for (int e; e < maxEnts; e++)
-		{
-			Address pEntName = entityList.Get(e);
-			ASSERT(pEntName);
-
-			UTIL_StringtToCharArray(pEntName, entName, sizeof(entName));
-			PrintToServer("%s -> %s", objName, entName)
-		}
-	}
+	return g_bIgnoreObjectives ? Plugin_Handled : Plugin_Continue; 
 }
 
 public void ObjectiveManager_StartNextObjective(Address addr)
@@ -312,34 +374,30 @@ void UTIL_StringtToCharArray(Address pSrc, char[] dest, int len)
 	dest[i] = 0;
 }
 
-bool ignoreObjectives;
 public Action OnObjectiveComplete(Event event, const char[] name, bool silent)
 {
-	if (ignoreObjectives)
+	if (g_bIgnoreObjectives)
 		return Plugin_Continue;
 
 	Objective pCurObj = objMgr.currentObjective;
 	ASSERT(pCurObj);
 
-	int doneObjID = event.GetInt("id");
-	Objective pDoneObj = objMgr.GetObjectiveByID(doneObjID);
-	ASSERT(pDoneObj);
+	int doneObjIdx = g_ObjectiveChain.FindValue(event.GetInt("id"));
+	int curObjIdx = g_ObjectiveChain.FindValue(pCurObj.id);
 
-	int doneObjIdx = objMgr.GetObjectiveIndex(pDoneObj);
-	int curObjIdx = objMgr.GetObjectiveIndex(pCurObj);
+	int numSkipped = doneObjIdx - curObjIdx;
 
-	PrintToServer("done idx = %d, cur idx = %d", doneObjIdx, curObjIdx);
-	int skipped = doneObjIdx - curObjIdx;
-	
-	if (skipped > 0) {
-		/* Complete intermediate objectives to break the map less */
-		ignoreObjectives = true;
+	if (numSkipped > 0)
+	{
+		g_bIgnoreObjectives = true;
 		do {
 			objMgr.CompleteCurrentObjective();
-			skipped--;
-		} while (skipped)
-		ignoreObjectives = false;
+			numSkipped--;
+		} while (numSkipped)
+		g_bIgnoreObjectives = false;
 	}
+
+	PrintToServer("done idx = %d, cur idx = %d", doneObjIdx, curObjIdx);
 
 	return Plugin_Continue;
 }
