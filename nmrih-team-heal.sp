@@ -321,7 +321,7 @@ void ApplyBandage(int client)
 	if (!hBandageHealAmt)
 		hBandageHealAmt = FindConVar("sv_bandage_heal_amt");
 
-	if (!GetEntProp(client, Prop_Send, "_bleedingOut"))
+	if (GetEntProp(client, Prop_Send, "_bleedingOut"))
 		SetEntProp(client, Prop_Send, "_bleedingOut", 0);
 
 	int newHealth = GetClientHealth(client) + hBandageHealAmt.IntValue;
