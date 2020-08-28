@@ -322,9 +322,7 @@ void ApplyBandage(int client)
 		hBandageHealAmt = FindConVar("sv_bandage_heal_amt");
 
 	if (!GetEntProp(client, Prop_Send, "_bleedingOut"))
-		return;
-
-	SetEntProp(client, Prop_Send, "_bleedingOut", 0);
+		SetEntProp(client, Prop_Send, "_bleedingOut", 0);
 
 	int newHealth = GetClientHealth(client) + hBandageHealAmt.IntValue;
 	int maxHealth = GetEntProp(client, Prop_Data, "m_iMaxHealth");
