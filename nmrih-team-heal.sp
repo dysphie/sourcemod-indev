@@ -45,7 +45,7 @@ bool GetItemData(int item, ItemData idata)
 		PrintToServer("DEBUG: first_aid data");
 
 		idata.prefunc = IsPlayerHurt
-		idata.func = HealPlayer;
+		idata.func = ApplyFirstAidKit;
 		idata.useTime = medkitTime.FloatValue;
 		return true;
 	}
@@ -55,7 +55,7 @@ bool GetItemData(int item, ItemData idata)
 		PrintToServer("DEBUG: bandages data");
 
 		idata.prefunc = IsPlayerBleeding
-		idata.func = BandagePlayer;
+		idata.func = ApplyBandage;
 		idata.useTime = bandageTime.FloatValue;
 		return true;
 	}
@@ -223,6 +223,7 @@ public void OnPluginStart()
 	medkitTime = CreateConVar("sm_team_heal_medkit_time", "8.1");
 	bandageTime = CreateConVar("sm_team_heal_bandage_time", "2.8");
 
+
 	for (int i; i < MaxClients; i++)
 		heal[i].Init(i);
 }
@@ -233,6 +234,8 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 	float curTime = GetGameTime();
 	if (nextThink[client] && curTime < nextThink[client])
 		return Plugin_Continue;
+
+	nextThink[client] = curTime + 0.1;
 
 	int oldButtons = GetEntProp(client, Prop_Data, "m_nOldButtons");
 	if (oldButtons & IN_USE && buttons & IN_USE)
@@ -252,7 +255,6 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 				if (GetVectorDistance(targetPos, selfPos) < 100.0)
 				{
 					heal[client].Think(target, item);
-					nextThink[client] = curTime + 0.1;
 					return Plugin_Continue;
 				}
 			}
@@ -262,21 +264,9 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 	int todo = -1;
 	heal[client].Think(todo, todo);
 
-	nextThink[client] = curTime + 0.1;
 	return Plugin_Continue;
 }
 
-
-
-void BandagePlayer(int client) 
-{
-	PrintToServer("BandagePlayer"); // TODO
-}
-
-void HealPlayer(int client) 
-{
-	PrintToServer("HealPlayer"); // TODO
-}
 
 stock bool IsPlayerHurt(int client)
 {
@@ -323,4 +313,40 @@ void DoVoiceCommand(int client, VoiceCommand voice)
 	TE_WriteNum("_playerIndex", client);
 	TE_WriteNum("_voiceCommand", _:voice);
 	TE_SendToAllInRange(origin, RangeType_Audibility);
+}
+
+void ApplyBandage(int client)
+{
+	static ConVar hBandageHealAmt;
+	if (!hBandageHealAmt)
+		hBandageHealAmt = FindConVar("sv_bandage_heal_amt");
+
+	if (!GetEntProp(client, Prop_Send, "_bleedingOut"))
+		return;
+
+	SetEntProp(client, Prop_Send, "_bleedingOut", 0);
+
+	int newHealth = GetClientHealth(client) + hBandageHealAmt.IntValue;
+	int maxHealth = GetEntProp(client, Prop_Data, "m_iMaxHealth");
+	if (newHealth > maxHealth)
+		newHealth = maxHealth;
+
+	SetEntityHealth(client, newHealth);
+}
+
+void ApplyFirstAidKit(int client)
+{
+	static ConVar hFirstAidHealAmt;
+	if (!hFirstAidHealAmt)
+		hFirstAidHealAmt = FindConVar("sv_first_aid_heal_amt");
+
+	if (GetEntProp(client, Prop_Send, "_bleedingOut"))
+		SetEntProp(client, Prop_Send, "_bleedingOut", 0);
+
+	int newHealth = GetClientHealth(client) + hFirstAidHealAmt.IntValue;
+	int maxHealth = GetEntProp(client, Prop_Data, "m_iMaxHealth");
+	if (newHealth > maxHealth)
+		newHealth = maxHealth;
+
+	SetEntityHealth(client, newHealth);
 }
