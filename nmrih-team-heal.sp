@@ -1,19 +1,40 @@
 /**
- * TODO:
- * - move RunCmd logic inside of HealProgress
- * - sounds
- * - separate next-think for sfx/ui/use 
- * - SDKCalls
- * - opti
+ * TODO: 
+ * - group scattered item data into Medical-indexed ItemData array
+ * - cleanup
+ * - opti?
  */
 
 #include <sdktools>
 #include <sdkhooks>
+#include <profiler>
 
-float nextThink[MAXPLAYERS+1];
+#define MAXPLAYERS_NMRIH 9
+
+float nextThink[MAXPLAYERS_NMRIH+1];
 
 ConVar medkitTime;
 ConVar bandageTime;
+
+enum struct SoundMap
+{
+	ArrayList keys;
+	ArrayList sounds;
+
+	void Init()
+	{
+		this.keys = new ArrayList();
+		this.sounds = new ArrayList(32);
+	}
+
+	void Set(int key, const char[] sound)
+	{
+		this.keys.Push(key);
+		this.sounds.PushString(sound);
+	}
+}
+
+SoundMap sfx[2];
 
 enum VoiceCommand
 {
@@ -21,193 +42,110 @@ enum VoiceCommand
 	VoiceCommand_ThankYou = 5
 }
 
-enum struct ItemData
+enum Medical
 {
-	Function prefunc;
-	Function func;
-	float useTime;
-
-	void Init()
-	{
-		this.prefunc = INVALID_FUNCTION;
-		this.func = INVALID_FUNCTION;
-		this.useTime = -1.0;
-	}
-}
-
-bool GetItemData(int item, ItemData idata)
-{
-	char classname[32];
-	GetEntityClassname(item, classname, sizeof(classname));
-
-	if (strcmp(classname[5], "first_aid") == 0)
-	{
-		PrintToServer("DEBUG: first_aid data");
-
-		idata.prefunc = IsPlayerHurt
-		idata.func = ApplyFirstAidKit;
-		idata.useTime = medkitTime.FloatValue;
-		return true;
-	}
-
-	if (strcmp(classname[5], "bandages") == 0)
-	{
-		PrintToServer("DEBUG: bandages data");
-
-		idata.prefunc = IsPlayerBleeding
-		idata.func = ApplyBandage;
-		idata.useTime = bandageTime.FloatValue;
-		return true;
-	}
-
-	PrintToServer("DEBUG: no valid item");
-	return false;
+	Medical_None = -1,
+	Medical_FirstAidKit,
+	Medical_Bandages
 }
 
 enum struct HealProgress
 {
-	float startTime;		// Time when the healing started
-	float duration;			// Time it will take to heal
-	int target;				// Player being healed
-	int client;				// Player doing the healing
-	int item;				// Medical item being used
-	ItemData itemData;		// Functions of medical item
+	int client;
+	int target;
+	Medical medical;
+	float startTime;
+	float duration;
 
-	float pctElapsed;		// Used to play medical sounds
+	int cursor;
 
+	void Think(int& target, Medical& medical)
+	{
+		if (this.IsActive())
+		{
+			if (target != this.target || medical != this.medical)
+			{
+				this.Stop();
+				return;
+			}
 
-	/**
-	 * Make struct ready for use by initializing its variables 
-	 * Must be called before anything else!
-	 *
-	 * @param client    Client index to bind struct to.
-	 */
+			float curTime = GetGameTime();
+
+			// Play sounds
+			float elapsedPct = (curTime - this.startTime) / this.duration * 100;
+
+			int max = sfx[this.medical].keys.Length;
+			for (; this.cursor < max; this.cursor++)
+			{
+				int playAtPct = sfx[this.medical].keys.Get(this.cursor);
+
+				// Bail if we've exhausted the sounds to play this frame
+				if (elapsedPct < playAtPct)
+					break;
+
+				char sound[32]; //TODO move out of loop
+				sfx[this.medical].sounds.GetString(this.cursor, sound, sizeof(sound));
+				EmitMedicalSound(this.client, sound);
+			}
+		
+			if (curTime >= this.startTime + this.duration)
+			{
+				this.Complete();
+				return;
+			}
+		}
+		else
+		{
+			if (target != -1 && medical != Medical_None)
+				this.Start(target, medical);
+		}
+	}
+
+	void Start(int& target, Medical& medical)
+	{
+		this.target = target;
+		this.medical = medical;
+		this.startTime = GetGameTime();
+		this.duration = GetDurationForMedical(medical);
+
+		FreezePlayer(this.client);
+		ShowProgressBar(this.client, this.duration);
+		TryVoiceCommand(this.client, VoiceCommand_Stay);
+	}
+
+	void Complete()
+	{
+		TryVoiceCommand(this.target, VoiceCommand_ThankYou);
+		DoFunctionForMedical(this.medical, this.target);
+
+		int item = GetEntPropEnt(this.client, Prop_Send, "m_hActiveWeapon");
+		SDKHooks_DropWeapon(this.client, item);
+		RemoveEntity(item);
+
+		this.Stop();
+	}
+
+	void Stop()
+	{
+		PrintCenterText(this.client, "");
+		UnfreezePlayer(this.client);
+		HideProgressBar(this.client);
+		this.Reset();
+	}
+
 	void Init(int client)
 	{
 		this.client = client;
 		this.Reset();
 	}
 
-	/**
-	 * Called when the client starts healing someone.
-	 * 
-	 * @param target    Player to start healing
-	 * @param item 		Item to heal with
-	 */
-	void Start(int& target, int& item)
-	{
-		PrintToServer("DEBUG: useTime %f", this.itemData.useTime);
-
-		this.startTime = GetTickedTime();
-		this.duration = this.itemData.useTime;
-		this.target = target;
-		this.item = item;
-
-		FreezePlayer(this.client);
-		ShowProgressBar(this.client, this.itemData.useTime);
-		DoVoiceCommand(this.client, VoiceCommand_Stay);
-	}
-
-	/**
-	 * Reset the struct to its default usable state
-	 *
-	 * @return        The float value of the integer and float added together.
-	 */
 	void Reset()
 	{
+		this.cursor = 0;
 		this.target = -1;
 		this.startTime = -1.0;
 		this.duration = -1.0;
-		this.pctElapsed = -1.0;
-		this.item = -1;
-		this.itemData.Init();
-	}
-
-	/**
-	 * Called when the heal progress is successful
-	 */
-	void Complete()
-	{
-		DoVoiceCommand(this.target, VoiceCommand_ThankYou);
-
-		// Call right function for medical item
-		Call_StartFunction(INVALID_HANDLE, this.itemData.func)
-		Call_PushCell(this.target); 
-		Call_Finish();    
-  		
-		SDKHooks_DropWeapon(this.client, this.item);
-		RemoveEntity(this.item);
-
-		this.Stop();
-		// TODO: Add client healed forward
-	}
-
-	/**
-	 * Called when the heal progress stops, successful or not
-	 */
-	void Stop()
-	{
-		PrintCenterText(this.client, "");
-		PrintToServer("Stop");
-		UnfreezePlayer(this.client);
-		HideProgressBar(this.client);
-		this.Reset();
-	}
-
-
-	/**
-	 * TODO
-	 */
-	void Think(int& target, int& item)
-	{
-		float curTime = GetTickedTime();
-
-		if (this.IsActive())
-		{
-			// Cancel if player switched to a different target or item
-			if (item != this.item || target != this.target)
-			{
-				this.Stop();
-				return;
-			}
-		}
-
-		else
-		{
-			if (item == -1 || target == -1)
-				return;
-
-			if (!GetItemData(item, this.itemData))
-			{
-				return;
-			}
-
-			// Test our target with prefunc
-			bool pass;
-			Call_StartFunction(INVALID_HANDLE, this.itemData.prefunc)
-			Call_PushCell(target);
-			Call_Finish(pass);
-
-			if (!pass)
-			{
-				// TODO: Reset 
-				PrintToServer("DEBUG: failed prefunc");
-				return;
-			}
-			else {
-				PrintToServer("DEBUG: prefunc ok");
-			}
-
-			this.Start(target, item);
-		}
-
-		PrintCenterText(this.target, "Getting healed by %N", this.client);
-		PrintCenterText(this.client, "Healing %N", this.target);
-
-		if (curTime > this.startTime + this.duration)
-		{
-			this.Complete();
-		}
+		this.medical = Medical_None;
 	}
 
 	bool IsActive()
@@ -216,57 +154,169 @@ enum struct HealProgress
 	}
 }
 
-HealProgress heal[MAXPLAYERS+1];
+HealProgress heal[MAXPLAYERS_NMRIH+1];
 
 public void OnPluginStart()
 {
 	medkitTime = CreateConVar("sm_team_heal_medkit_time", "8.1");
 	bandageTime = CreateConVar("sm_team_heal_bandage_time", "2.8");
 
-
 	for (int i; i < MaxClients; i++)
 		heal[i].Init(i);
+
+	SoundMap medkitSnd;
+	medkitSnd.Init();
+	medkitSnd.Set(0, "Medkit.Open");
+	medkitSnd.Set(8, "MedPills.Draw");
+	medkitSnd.Set(13, "MedPills.Open");
+	medkitSnd.Set(17, "MedPills.Shake");
+	medkitSnd.Set(19, "MedPills.Shake");
+	medkitSnd.Set(46, "Stitch.Flesh");
+	medkitSnd.Set(55, "Stitch.Flesh");
+	medkitSnd.Set(58, "Medkit.Shuffle");
+	medkitSnd.Set(78, "Weapon_db.GenericFoley");
+	medkitSnd.Set(79, "Medkit.Shuffle");
+	medkitSnd.Set(84, "Weapon_db.GenericFoley");
+	medkitSnd.Set(90, "Weapon_db.GenericFoley");
+	medkitSnd.Set(94, "Tape.unravel");
+
+	SoundMap bandageSnd;
+	bandageSnd.Init();
+	bandageSnd.Set(0, "Weapon_db.GenericFoley");
+	bandageSnd.Set(41, "Bandage.Unravel");
+	bandageSnd.Set(55, "Bandage.Unravel");
+	bandageSnd.Set(80, "Bandage.Apply");
+
+	sfx[Medical_FirstAidKit] = medkitSnd;
+	sfx[Medical_Bandages] = bandageSnd;
 }
 
 public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3], float angles[3], 
 	int& weapon, int& subtype, int& cmdnum, int& tickcount, int& seed, int mouse[2])
 {
-	float curTime = GetGameTime();
-	if (nextThink[client] && curTime < nextThink[client])
+	if (!IsPlayerAlive(client))
 		return Plugin_Continue;
 
-	nextThink[client] = curTime + 0.1;
+	float curTime = GetGameTime();
 
-	int oldButtons = GetEntProp(client, Prop_Data, "m_nOldButtons");
-	if (oldButtons & IN_USE && buttons & IN_USE)
+	if (curTime < nextThink[client])
+		return Plugin_Continue;
+
+	int target = -1;
+	Medical medical = Medical_None;
+
+	for(;;) 
 	{
-		// Client is holding something
-		int item = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
-		if (item != -1)
-		{
-			// Client is aiming at a teammate
-			int target = GetClientAimTarget(client);
-			if (target != -1)
-			{
-				float targetPos[3], selfPos[3];
-				GetEntPropVector(target, Prop_Send, "m_vecOrigin", targetPos);
-				GetClientAbsOrigin(client, selfPos);
+		if ( !(buttons & IN_USE) )
+			break;
 
-				if (GetVectorDistance(targetPos, selfPos) < 100.0)
-				{
-					heal[client].Think(target, item);
-					return Plugin_Continue;
-				}
-			}
-		}
+		int item = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+		if (item == -1)
+			break;
+
+		if ((medical = GetMedicalDefinition(item)) == Medical_None)
+			break;
+
+		int new_target = GetClientAimTarget(client, .only_clients=true);
+		if (new_target == -1)
+			break;
+
+		if (!TestPreCondForMedical(medical, item, new_target))
+			break;
+
+		float self_pos[3];
+		float target_pos[3];
+
+		GetClientAbsOrigin(client, self_pos);
+		GetClientAbsOrigin(new_target, target_pos);
+
+		if (GetVectorDistance(self_pos, target_pos) > 100.0)
+			break;
+
+		target = new_target;
+		break;
 	}
 
-	int todo = -1;
-	heal[client].Think(todo, todo);
+	heal[client].Think(target, medical);
+	nextThink[client] = curTime + 0.1;
 
 	return Plugin_Continue;
 }
 
+enum MedicalSequence
+{
+	MedicalSequence_Idle = 4,
+	MedicalSequence_WalkIdle = 7
+}
+
+bool TestPreCondForMedical(Medical& medical, int& item, int& target)
+{
+	switch (medical)
+	{
+		case Medical_Bandages:
+		{
+			if (!IsPlayerBleeding(target))
+				return false;
+
+			any s = GetEntProp(item, Prop_Send, "m_nSequence");
+			return s == MedicalSequence_Idle || s == MedicalSequence_WalkIdle;
+		}
+
+		case Medical_FirstAidKit:
+		{
+			if (!IsPlayerHurt(target))
+				return false;
+
+			any s = GetEntProp(item, Prop_Send, "m_nSequence");
+			return s == MedicalSequence_Idle || s == MedicalSequence_WalkIdle;
+		}
+		
+		default:
+			return false;
+	}
+}
+
+void DoFunctionForMedical(Medical& medical, int& target)
+{
+	switch (medical)
+	{
+		case Medical_Bandages:
+			ApplyBandage(target);
+
+		case Medical_FirstAidKit:
+			ApplyFirstAidKit(target);
+	}	
+}
+
+float GetDurationForMedical(Medical& medical)
+{
+	switch (medical)
+	{
+		case Medical_Bandages:
+			return bandageTime.FloatValue;
+
+		case Medical_FirstAidKit:
+			return medkitTime.FloatValue;
+
+		default:
+			return -1.0;
+	}
+}
+
+// TODO: stringmap?
+Medical GetMedicalDefinition(int item)
+{
+	char classname[32];
+	GetEntityClassname(item, classname, sizeof(classname));
+
+	if (strcmp(classname[5], "first_aid") == 0)
+		return Medical_FirstAidKit;
+	
+	if (strcmp(classname[5], "bandages") == 0)
+		return Medical_Bandages;
+	
+	return Medical_None;
+}
 
 stock bool IsPlayerHurt(int client)
 {
@@ -304,8 +354,21 @@ stock void UnfreezePlayer(int client)
 	SetEntProp(client, Prop_Send, "m_fFlags", curFlags & ~128);
 }
 
-void DoVoiceCommand(int client, VoiceCommand voice)
+void TryVoiceCommand(int client, VoiceCommand voice)
 {
+	static float lastVoiceTime[MAXPLAYERS_NMRIH+1];
+
+	static ConVar hVoiceCooldown;
+	if (!hVoiceCooldown)
+		hVoiceCooldown = FindConVar("sv_voice_cooldown");
+
+	float curTime = GetGameTime();
+	if (curTime - hVoiceCooldown.FloatValue < lastVoiceTime[client])
+	{
+		return;
+	}
+
+	lastVoiceTime[client] = curTime;
 	float origin[3];
 	GetClientAbsOrigin(client, origin);
 
@@ -347,4 +410,18 @@ void ApplyFirstAidKit(int client)
 		newHealth = maxHealth;
 
 	SetEntityHealth(client, newHealth);
+}
+
+void EmitMedicalSound(int client, const char[] game_sound)
+{
+	int entity;
+	char sound_name[128];
+	int channel = SNDCHAN_AUTO;
+	int sound_level = SNDLEVEL_NORMAL;
+	float volume = SNDVOL_NORMAL;
+	int pitch = SNDPITCH_NORMAL;
+	GetGameSoundParams(game_sound, channel, sound_level, volume, pitch, sound_name, sizeof(sound_name), entity);
+
+	// Play sound.
+	EmitSoundToAll(sound_name, client, channel, sound_level, SND_CHANGEVOL | SND_CHANGEPITCH, volume, pitch);
 }
