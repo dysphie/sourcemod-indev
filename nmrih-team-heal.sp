@@ -22,6 +22,7 @@ public Plugin myinfo = {
 
 #define MAXPLAYERS_NMRIH 9
 
+
 enum MedicalSequence
 {
 	MedicalSequence_Idle = 4,
@@ -58,6 +59,8 @@ enum struct SoundMap
 		this.sounds.PushString(sound);
 	}
 }
+
+SoundMap sfx[2];
 
 enum struct HealProgress
 {
@@ -168,7 +171,6 @@ HealProgress heal[MAXPLAYERS_NMRIH+1];
 float nextThink[MAXPLAYERS_NMRIH+1];
 ConVar medkitTime;
 ConVar bandageTime;
-SoundMap sfx[2];
 
 public void OnPluginStart()
 {

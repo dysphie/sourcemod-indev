@@ -286,8 +286,8 @@ public void OnPluginStart()
 
 	HookEvent("objective_complete", OnObjectiveComplete, EventHookMode_Pre);
 	HookUserMessage(GetUserMessageId("ObjectiveNotify"), OnObjectiveNotify, true);
-	RegConsoleCmd("sm_test", OnCmdTest);
-	RegConsoleCmd("sm_chain", OnCmdChain);
+	RegAdminCmd("sm_test", OnCmdTest, ADMFLAG_GENERIC, "Tests various calls");
+	RegAdminCmd("sm_chain", OnCmdChain, ADMFLAG_GENERIC, "Prints objective chain");
 }
 
 
