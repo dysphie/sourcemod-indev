@@ -7,14 +7,39 @@
 
 #include <sdktools>
 #include <sdkhooks>
-#include <profiler>
+#include <sourcemod>
+
+#pragma semicolon 1
+#pragma newdecls required
+
+public Plugin myinfo = {
+    name        = "[NMRiH] Team Healing",
+    author      = "Dysphie",
+    description = "Allow use of first aid kits and bandages on teammates",
+    version     = "1.0.0",
+    url         = ""
+};
 
 #define MAXPLAYERS_NMRIH 9
 
-float nextThink[MAXPLAYERS_NMRIH+1];
+enum MedicalSequence
+{
+	MedicalSequence_Idle = 4,
+	MedicalSequence_WalkIdle = 7
+}
 
-ConVar medkitTime;
-ConVar bandageTime;
+enum VoiceCommand
+{
+	VoiceCommand_Stay = 4,
+	VoiceCommand_ThankYou = 5
+}
+
+enum Medical
+{
+	Medical_None = -1,
+	Medical_FirstAidKit,
+	Medical_Bandages
+}
 
 enum struct SoundMap
 {
@@ -32,21 +57,6 @@ enum struct SoundMap
 		this.keys.Push(key);
 		this.sounds.PushString(sound);
 	}
-}
-
-SoundMap sfx[2];
-
-enum VoiceCommand
-{
-	VoiceCommand_Stay = 4,
-	VoiceCommand_ThankYou = 5
-}
-
-enum Medical
-{
-	Medical_None = -1,
-	Medical_FirstAidKit,
-	Medical_Bandages
 }
 
 enum struct HealProgress
@@ -155,6 +165,10 @@ enum struct HealProgress
 }
 
 HealProgress heal[MAXPLAYERS_NMRIH+1];
+float nextThink[MAXPLAYERS_NMRIH+1];
+ConVar medkitTime;
+ConVar bandageTime;
+SoundMap sfx[2];
 
 public void OnPluginStart()
 {
@@ -212,7 +226,7 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 	int target = -1;
 	Medical medical = Medical_None;
 
-	for(;;) 
+	for(;;) // Compiler doesn't like while(1)
 	{
 		if ( !(buttons & IN_USE) )
 			break;
@@ -248,12 +262,6 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 	nextThink[client] = curTime + 0.1;
 
 	return Plugin_Continue;
-}
-
-enum MedicalSequence
-{
-	MedicalSequence_Idle = 4,
-	MedicalSequence_WalkIdle = 7
 }
 
 bool TestPreCondForMedical(Medical& medical, int& item, int& target)
