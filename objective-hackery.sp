@@ -1,5 +1,13 @@
 #include <sdktools>
 
+public Plugin myinfo = {
+    name        = "[NMRiH] Objective Skipping",
+    author      = "Dysphie",
+    description = "Handle objective skips gracefully",
+    version     = "0.1.0",
+    url         = ""
+};
+
 #define ASSERT(%1) if (!%1) ThrowError("#%1")
 
 stock Address operator+(Address base, int off) {
