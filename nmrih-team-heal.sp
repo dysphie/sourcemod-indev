@@ -16,7 +16,7 @@ public Plugin myinfo = {
     name        = "[NMRiH] Team Healing",
     author      = "Dysphie",
     description = "Allow use of first aid kits and bandages on teammates",
-    version     = "1.0.0",
+    version     = "0.1.0",
     url         = ""
 };
 
