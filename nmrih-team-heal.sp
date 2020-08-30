@@ -171,9 +171,16 @@ public void OnPluginStart()
 	medkitSnd.Set(13, "MedPills.Open");
 	medkitSnd.Set(17, "MedPills.Shake");
 	medkitSnd.Set(19, "MedPills.Shake");
+	medkitSnd.Set(30, "Medkit.Shuffle");
+	medkitSnd.Set(39, "Stitch.Prepare");
 	medkitSnd.Set(46, "Stitch.Flesh");
+	medkitSnd.Set(49, "Weapon_db.GenericFoley");
+	medkitSnd.Set(52, "Stitch.Flesh");
 	medkitSnd.Set(55, "Stitch.Flesh");
 	medkitSnd.Set(58, "Medkit.Shuffle");
+	medkitSnd.Set(66, "Scissors.Snip");
+	medkitSnd.Set(67, "Scissors.Snip");
+	medkitSnd.Set(75, "Scissors.Snip");
 	medkitSnd.Set(78, "Weapon_db.GenericFoley");
 	medkitSnd.Set(79, "Medkit.Shuffle");
 	medkitSnd.Set(84, "Weapon_db.GenericFoley");
@@ -183,8 +190,8 @@ public void OnPluginStart()
 	SoundMap bandageSnd;
 	bandageSnd.Init();
 	bandageSnd.Set(0, "Weapon_db.GenericFoley");
-	bandageSnd.Set(41, "Bandage.Unravel");
-	bandageSnd.Set(55, "Bandage.Unravel");
+	bandageSnd.Set(41, "Bandage.Unravel1");
+	bandageSnd.Set(55, "Bandage.Unravel2");
 	bandageSnd.Set(80, "Bandage.Apply");
 
 	sfx[Medical_FirstAidKit] = medkitSnd;
