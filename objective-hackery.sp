@@ -283,7 +283,9 @@ public void OnPluginStart()
 		"\x55\x8B\xEC\x83\xEC\x2C\x53\x56\x57\x8B\xF9\x89\x7D\xF8", 14);
 	hStartNextObjective = EndPrepSDKCall();
 	ASSERT(hStartNextObjective);
-
+	
+	delete gamedata;
+	
 	HookEvent("objective_complete", OnObjectiveComplete, EventHookMode_Pre);
 	HookUserMessage(GetUserMessageId("ObjectiveNotify"), OnObjectiveNotify, true);
 	RegAdminCmd("sm_test", OnCmdTest, ADMFLAG_GENERIC, "Tests various calls");
