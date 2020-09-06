@@ -177,7 +177,7 @@ public void OnPluginStart()
 	medkitTime = CreateConVar("sm_team_heal_medkit_time", "8.1");
 	bandageTime = CreateConVar("sm_team_heal_bandage_time", "2.8");
 
-	for (int i; i < MaxClients; i++)
+	for (int i = 1; i <= MaxClients; i++)
 		heal[i].Init(i);
 
 	SoundMap medkitSnd;
