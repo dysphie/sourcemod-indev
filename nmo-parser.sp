@@ -30,6 +30,7 @@ public Action OnCmdNmo(int client, int args)
 	if (version != 'v') 
 	{
 		PrintToServer("Unsupported NMO format");
+		delete file;
 		return Plugin_Handled;		
 	}
 
