@@ -3,25 +3,53 @@
 public void OnPluginStart()
 {
 	RegConsoleCmd("sm_nmo", OnCmdNmo);
+	RegConsoleCmd("sm_nmoall", OnCmdNmoAll);
+}
+
+public Action OnCmdNmoAll(int client, int args)
+{
+	DirectoryListing iter = OpenDirectory("maps", false);
+	if (!iter)
+	{
+		PrintToServer("Dir not found");
+		return Plugin_Handled;
+	}
+
+	FileType filetype;
+	char filename[PLATFORM_MAX_PATH];
+
+	while (iter.GetNext(filename, sizeof(filename)), filetype)
+	{
+		// TODO
+		PrintToServer(filename);
+	}
+
+	PrintToServer("Done");
+	delete iter;
+
+	return Plugin_Handled;
 }
 
 public Action OnCmdNmo(int client, int args)
 {
+	char mapName[PLATFORM_MAX_PATH];
+	GetCurrentMap(mapName, sizeof(mapName));
+	ParseObjectives(mapName);
+
+	return Plugin_Handled;
+}
+
+void ParseObjectives(const char[] mapName)
+{
 	char buffer[PLATFORM_MAX_PATH];
 	GetCurrentMap(buffer, sizeof(buffer));
-	Format(buffer, sizeof(buffer), "maps/%s.nmo", buffer);
-
-	if (!FileExists(buffer, true, NULL_STRING))
-	{
-		PrintToServer("No NMO exists for map");
-		return Plugin_Handled;
-	}
+	Format(buffer, sizeof(buffer), "maps/%s.nmo", mapName);
 
 	File file = OpenFile(buffer, "rb", true, NULL_STRING);
 	if (!file)
 	{
 		PrintToServer("NMO file could not be opened");
-		return Plugin_Handled;
+		return;
 	}
 
 	int version;
@@ -30,17 +58,9 @@ public Action OnCmdNmo(int client, int args)
 	if (version != 'v') 
 	{
 		PrintToServer("Unsupported NMO format");
-		delete file;
-		return Plugin_Handled;		
+		return;		
 	}
 
-	ParseObjectivesV1(file);
-	delete file;
-	return Plugin_Handled;
-}
-
-void ParseObjectivesV1(File file)
-{
 	int padding;
 	file.ReadInt32(padding);
 
