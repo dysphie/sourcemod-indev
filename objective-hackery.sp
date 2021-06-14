@@ -49,7 +49,7 @@ methodmap UtlVector < AddressBase
 		int max = this.size;
 		for (int i; i < max; i++)
 			if (this.Get(i) == value)
-				return value;
+				return i;
 		return -1;
 	}
 }
